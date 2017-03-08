@@ -1,0 +1,92 @@
+/*
+ *  QRLibraryDebug.mm -- Implementation code, when/where/how QuickReply will be activated and change original SMS Alert
+ *  
+ *
+ *  Created by Gaurav Khanna on 02/01/09.
+ *  Copyright 2009 xShad0w. All rights reserved.
+ *  Contact: Gauravk92@gmail.com
+ *
+ *  This file is part of iphone-quickreply or QuickReply.
+ */
+
+#ifdef TESTING
+
+MSHook(void, SMSAlertSheet$layout, SMSAlertSheet *self, SEL sel) {
+    DLogFunc();
+    DLogObject(self);
+    _SMSAlertSheet$layout(self, sel);
+}
+
+MSHook(void, SMSAlertSheet$layoutAnimated$, SMSAlertSheet *self, SEL sel, BOOL animated) {
+    DLogFunc();
+    DLogObject(self);
+    _SMSAlertSheet$layoutAnimated$(self,sel,animated);
+}
+
+MSHook(void, SBSMSAlertItem$willPresentAlertSheet$, SBSMSAlertItem *self, SEL sel, SMSAlertSheet *sheet) {
+    DLogFunc();
+    _SBSMSAlertItem$willPresentAlertSheet$(self,sel,sheet);
+}
+
+MSHook(void, SMSAlertSheet$drawRect$, SMSAlertSheet *self, SEL sel, CGRect frame) {
+    DLogFunc();
+    _SMSAlertSheet$drawRect$(self,sel,frame);
+}
+
+/*MSHook(void, SBSMSAlertItem$reply, id self, SEL sel) {
+    DLogFunc();
+    _SB
+}*/
+
+MSHook(BOOL, SBAwayItemsView$reloadData, SBAwayItemsView *self, SEL sel) {
+    DLogFunc();
+    return _SBAwayItemsView$reloadData(self,sel);
+}
+
+MSHook(void, SBAwayController$reactivatePendingAlertItems, id self, SEL sel) {
+    DLogFunc();
+    _SBAwayController$reactivatePendingAlertItems(self,sel);
+}
+MSHook(void, SBAwayController$_pendAlertItem$, id self, SEL sel, id item) {
+    DLogFunc();
+    DLogObject(item);
+    _SBAwayController$_pendAlertItem$(self,sel,item);
+}
+
+MSHook(void, SBAwayController$cleansePendingQueueOfAwayItems, id self, SEL sel) {
+    DLogFunc();
+    _SBAwayController$cleansePendingQueueOfAwayItems(self,sel);
+}
+MSHook(BOOL, SBAwayController$allowsStackingOfAlert$, id self, SEL sel, id alert) {
+    DLogFunc();
+    DLogObject(alert);
+    BOOL allow = _SBAwayController$allowsStackingOfAlert$(self,sel,alert);
+    DLogBOOL(allow);
+    return allow;
+}
+MSHook(void, SBAwayController$pendOrDeactivateCurrentAlertItem, id self, SEL sel) {
+    DLogFunc();
+    _SBAwayController$pendOrDeactivateCurrentAlertItem(self,sel);
+}
+MSHook(BOOL, SBAwayController$activateAlertItem$, id self, SEL sel, id item) {
+    DLogFunc();
+    DLogObject(item);
+    BOOL activate = _SBAwayController$activateAlertItem$(self,sel,item);
+    DLogBOOL(activate);
+    return activate;
+}
+
+MSHook(void, SBAwayItemsView$drawRect$, id self, SEL sel, CGRect rect) {
+    DLogFunc();
+    _SBAwayItemsView$drawRect$(self,sel,rect); 
+}
+
+/*CHDeclareMethod2(void, UIApplication, handleEvent, GSEventRef, gsEvent, withNewEvent, UIEvent *, newEvent)
+{
+	if (gsEvent)
+		if (GSEventGetType(gsEvent) == 50)
+			if (!rotationEnabled)
+				return;
+	CHSuper2(UIApplication, handleEvent, gsEvent, withNewEvent, newEvent);
+}*/
+#endif

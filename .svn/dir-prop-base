@@ -1,0 +1,13 @@
+K 10
+svn:ignore
+V 52
+.*
+build
+framework
+obj
+QuickReply.h
+*.deb
+_
+*.dylib
+
+END

@@ -1,0 +1,71 @@
+/*
+ *  QRLibraryRock.mm 
+ *  
+ *
+ *  Created by Gaurav Khanna on 02/01/09.
+ *  Copyright 2009 xShad0w. All rights reserved.
+ *  Contact: Gauravk92@gmail.com
+ *
+ *  This file is part of iphone-quickreply or QuickReply.
+ */
+
+#ifdef ROCK1
+
+Class $QRRockAlertItem;
+Class $SBAlertItemsController;
+
+void QRRockAlertItem$alertSheet$buttonClicked$(id self, SEL sel, id sheet, int button) {
+    switch (button) {
+        case 1:
+            break;
+        case 2:
+            [$[(UIApplication) sharedApplication] openURL:[NSURL URLWithString:@"rock://package/ckquickreplyrock"]];
+            break;
+    }
+    
+    [self dismiss];
+}
+
+void QRRockAlertItem$configure$requirePasscodeForActions$(id self, SEL sel, BOOL configure, BOOL require) {
+    UIModalView *sheet([self alertSheet]);
+    [sheet setDelegate:self];
+    [sheet setTitle:@"QuickReply for SMS"];
+    [sheet setBodyText:@"Sorry, it looks like your trial has ended. You'll have to purchase \"QuickReply for SMS\" from the Rock Store now. Go!"];
+    [sheet addButtonWithTitle:@"Dismiss"];
+    [sheet setCancelButtonIndex:1];
+    [sheet addButtonWithTitle:@"Buy"];
+    [sheet setNumberOfRows:1];
+}
+
+void QRRockAlertItem$performUnlockAction(id self, SEL sel) {
+    [(SBAlertItemsController *)[$SBAlertItemsController sharedInstance] activateAlertItem:self];
+}
+
+static void QRRockAlert() {
+    if ($QRRockAlertItem == nil)
+        $QRRockAlertItem = objc_lookUpClass("QRRockAlertItem");
+    if ($QRRockAlertItem == nil) {
+        $QRRockAlertItem = objc_allocateClassPair(objc_getClass("SBAlertItem"), "QRRockAlertItem", 0);
+        if ($QRRockAlertItem == nil)
+            return;
+        
+        class_addMethod($QRRockAlertItem, @selector(alertSheet:buttonClicked:), (IMP) &QRRockAlertItem$alertSheet$buttonClicked$, "v@:@i");
+        class_addMethod($QRRockAlertItem, @selector(configure:requirePasscodeForActions:), (IMP) &QRRockAlertItem$configure$requirePasscodeForActions$, "v@:cc");
+        class_addMethod($QRRockAlertItem, @selector(performUnlockAction), (IMP) QRRockAlertItem$performUnlockAction, "v@:");
+        objc_registerClassPair($QRRockAlertItem);
+    }
+    
+    if ($(SBAlertItemsController) != nil)
+        [(SBAlertItemsController *)[$(SBAlertItemsController) sharedInstance] activateAlertItem:[[$QRRockAlertItem alloc] init]];
+}
+
+MSHook(void, SBIconController$showInfoAlertIfNeeded, id self, SEL sel) {
+    _SBIconController$showInfoAlertIfNeeded(self,sel);
+    static bool loaded = false;
+    if (loaded)
+        return;
+    loaded = true;
+    QRRockAlert();
+}
+
+#endif

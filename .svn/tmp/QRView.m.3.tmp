@@ -1,0 +1,500 @@
+/*
+ *  QRView.mm -- QRView Class implementation
+ *  
+ *
+ *  Created by Gaurav Khanna on 02/01/09.
+ *  Copyright 2009 xShad0w. All rights reserved.
+ *  Contact: Gauravk92@gmail.com
+ *
+ *  This file is part of iphone-quickreply or QuickReply.
+ */
+
+#import <UIKit/UIKeyboard.h>
+#import <ChatKit/CKMessageEntryView.h>
+#import <ChatKit/CKContentEntryView.h>
+#import <ChatKit/CKMessagePart.h>
+#import <ChatKit/CKMessageComposition.h>
+#import <ChatKit/CKSimpleBalloonView.h>
+#import <ChatKit/CKSMSService.h>
+#import <ChatKit/CKSMSMessage.h>
+#import <ChatKit/CKConversation.h>
+
+extern "C" UIImage * _UIImageWithName(NSString *name);
+
+static NSMutableDictionary *Instances_;
+
+@interface QRView : UIView <CKMessageEntryViewDelegate>//, UIScrollViewDelegate> //, CKEntryField>
+{
+    UIImageView *_fakeNavBar;
+    UILabel *_titleLabel;
+    //UIKeyboard *_keyboard;
+    QRWindow *_keyWindow;
+    CKMessageEntryView *_messageEntryView;
+    UIScrollView *_scrollView;
+    unsigned int _fixedScrollView:1;
+    int _balloonY;
+    int _statusBarHeight;
+}
+
+@property(nonatomic, retain) NSString* title;
+@property(nonatomic, retain) CKMessage* message;
+@property(nonatomic, retain) NSString* address;
+@property(nonatomic, retain) CKConversation* conversation;
+@property(nonatomic, retain) CKSMSMessage* messageToSend;
+
+//+ (BOOL)displayWithTitle:(NSString *)title message:(NSString *)message address:(NSString *)address;
+//+ (BOOL)displayQuickSend;
+
++ (NSMutableDictionary *)instances;
++ (BOOL)checkAddressInInstances:(NSString *)address;
++ (QRView *)viewForAddressInInstances:(NSString *)address;
++ (void)displayWithSBSMSAlertItem:(SBSMSAlertItem *)alertItem;
+//+ (void)addAddressInInstances:(id)address object:(id)object;
+//+ (void)removeAddressInInstances:(id)address object:(id)object;
+
+//+ (void)closeTopView;
+- (void)_initWithTitle:(NSString *)title message:(CKMessage *)message address:(NSString *)address conversation:(CKConversation *)conversation;
+- (void)addMessage:(CKMessage *)message animated:(BOOL)animated;
+- (void)addMessagePart:(CKMessagePart *)part animated:(BOOL)animated;
+- (CKMessageEntryView *)_messageEntryView;
+- (void)resignAnimated:(NSNumber *)animated;
+- (void)refresh;
+@end
+
+@implementation QRView
+
+@synthesize title, message, address, messageToSend, conversation;
+
+#define DALPHA 0.9
+
++ (NSMutableDictionary *)instances{
+    if(Instances_ == nil || ![Instances_ isKindOfClass:objc_getClass("NSMutableDictionary")])
+        Instances_ = [[NSMutableDictionary alloc] initWithCapacity:1];
+    return Instances_;
+}
+
+
++ (BOOL)checkAddressInInstances:(NSString *)address {
+    DLogObject(address);
+    if([[QRView instances] objectForKey:address])
+        return true;
+    else
+        return false;
+}
+
++ (QRView *)viewForAddressInInstances:(NSString *)address {
+    [[Instances_ objectForKey:address] pointerValue];
+}
+
++ (void)addAddressInInstances:(NSString *)address object:(QRView *)object {
+    [[QRView instances] setObject:[[NSValue alloc] initWithBytes:&object objCType:@encode(void *)] forKey:address];
+}
+
++ (void)removeAddressInInstances:(NSString *)address object:(QRView *)object{
+    [Instances_ removeObjectForKey:address];
+    //[Window_ refreshLastWindow];
+}
+
++ (void)displayWithSBSMSAlertItem:(SBSMSAlertItem *)alertItem {
+    [[QRView alloc] _initWithTitle:[alertItem name] 
+                           message:MSHookIvar<CKMessage *>(alertItem,"_message") 
+                           address:[alertItem address] 
+                      conversation:[MSHookIvar<CKMessage *>(alertItem,"_message") conversation]];
+}
+- (void)_initWithTitle:(NSString *)title message:(CKMessage *)message address:(NSString *)address conversation:(CKConversation *)conversation{
+    if ( (self = [super initWithFrame:[UIScreen mainScreen].bounds]) ){
+        self.bounds.size.height = self.frame.size.height-216.0;
+        self.title = title;
+        self.message = message;
+        self.address = address;
+        self.conversation = conversation;
+        self.messageToSend = nil;
+        _fixedScrollView = true;
+        _balloonY = 0.0;
+        if([UIApplication sharedApplication].statusBarHidden == true || [[objc_getClass("SBStatusBarController") sharedStatusBarController] 
+                                                                        statusBarMode] == 104)
+            _statusBarHeight = 0.0;
+        else 
+            _statusBarHeight = [UIApplication sharedApplication].statusBarFrame.size.height;
+    }
+    
+    
+    // self.frame = [UIScreen mainScreen].bounds;
+    
+    /*   UIView *aView = [[UIView alloc] initWithFrame:CGRectMake(0.0, 20.0, 320.0, 265.0-20)];
+     aView.userInteractionEnabled = false;
+     aView.backgroundColor = [UIColor blackColor];
+     aView.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
+     addView(self, aView);
+     [aView release];*/
+
+    //DLogObject([self.message text]);
+    
+    self.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.55];
+    self.exclusiveTouch = true;
+    
+    _fakeNavBar = [[UIImageView alloc] initWithImage:_UIImageWithName(@"UINavigationBarBlackTranslucentBackground.png")];
+    _fakeNavBar.frame = CGRectMake(0.0, _statusBarHeight, 320.0, 44.0); // evaluate removing 1 pixel on statusbarheight in which modes
+    //   [fakeNavBar setAlpha:DALPHA];
+    [self addSubview:_fakeNavBar];
+    [_fakeNavBar release];
+    
+    _titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(0.0, 0.0, 320.0, 44.0)];
+    _titleLabel.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.0];
+    _titleLabel.text = self.title;
+    _titleLabel.textColor = [UIColor whiteColor];
+    _titleLabel.textAlignment = UITextAlignmentCenter;
+    _titleLabel.font = [UIFont boldSystemFontOfSize:20.0];
+    _titleLabel.shadowColor = [UIColor blackColor];
+    _titleLabel.shadowOffset = CGSizeMake(0.0,1.0);
+    [_fakeNavBar addSubview:_titleLabel];
+    [_titleLabel release];
+    
+    //_keyboard = [UIKeyboard automaticKeyboard];
+    
+    //_keyboard.frame = CGRectMake(0.0, [UIScreen mainScreen].applicationFrame.size.height - _keyboard.frame.size.height, \
+    _keyboard.frame.size.width, _keyboard.frame.size.height);
+    //[self addSubview:_keyboard];
+    
+    
+    
+    float scrollHeight = (480.0-40.0-_statusBarHeight-216.0);
+    _scrollView = [[UIScrollView alloc] initWithFrame:CGRectMake( 0.0, _statusBarHeight, 
+                                                                 320.0, scrollHeight)];
+    _scrollView.backgroundColor = [UIColor clearColor];
+    _scrollView.indicatorStyle = UIScrollViewIndicatorStyleWhite; // ??
+    _scrollView.contentInset = _scrollView.scrollIndicatorInsets = UIEdgeInsetsMake(44.0,0.0,0.0,0.0);
+    
+    
+    //------Used to take any alert items behind selected and dismiss/add here----------
+    Class $SBAlertItemsController = objc_getClass("SBAlertItemsController");
+    SBAlertItemsController *alertController = [$SBAlertItemsController sharedInstance];
+    NSMutableArray *arr = MSHookIvar<NSMutableArray *>(alertController, "_unlockedAlertItems");
+    id object;
+    for (int i=0; i<[arr count]; nil) {
+        object = [arr objectAtIndex:i];
+        if([object isKindOfClass:objc_getClass("SBSMSAlertItem")] && [[object address] isEqualToString:self.address]){
+            [self addMessage:MSHookIvar<CKMessage *>(object,"_message") animated:false];
+            [alertController deactivateAlertItem:object];
+        }else
+            i++;
+    }
+    //---------------------------------------------------------------------------------
+    
+    NSArray *msgParts = MSHookIvar<NSArray *>(self.message,"_messageParts");
+    DLogObject(msgParts);
+    if([msgParts count] > 0) {
+        //basically this is now an MMS and we gotta figure the shit out...
+        for (int i=0; i<[msgParts count]; i++) {
+            object = [msgParts objectAtIndex:i];
+            [self addMessagePart:object animated:false];
+        }
+    } else {
+        [self addMessage:self.message animated:false];
+    }
+    
+    [self insertSubview:_scrollView belowSubview:_fakeNavBar];
+    [_scrollView release];
+    
+<<<<<<< .mine
+    
+    _messageEntryView = [[CKMessageEntryView alloc] initWithFrame:CGRectMake(0.0 , _statusBarHeight+scrollHeight, 320.0 ,
+                                                                             [CKMessageEntryView defaultHeight])];
+=======
+    
+    //------Used to see if MMS is enabled, if so add's media button on left side-------
+    NSDictionary *settings = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/Library/Preferences/com.apple.MobileSMS.plist"];
+    if([[settings objectForKey:@"MMSEnabled"] boolValue]){
+        _messageEntryView = [[CKMessageMediaEntryView alloc] initWithFrame:CGRectMake(0.0 , _statusBarHeight+scrollHeight, 320.0 , 
+                                                                                      [CKMessageEntryView defaultHeight])];
+        [MSHookIvar<UIButton *>(_messageEntryView,"_photoButton") addTarget:self 
+                                                                     action:@selector(mediaButtonClicked:event:) 
+                                                           forControlEvents:UIControlEventTouchUpInside];
+    }else{
+        _messageEntryView = [[CKMessageEntryView alloc] initWithFrame:CGRectMake(0.0 , _statusBarHeight+scrollHeight, 320.0 , 
+                                                                                      [CKMessageEntryView defaultHeight])];
+    }
+>>>>>>> .r556
+    //---------------------------------------------------------------------------------
+    _messageEntryView.userInteractionEnabled = true;
+    [_messageEntryView setDelegate:self];
+    [self addSubview:_messageEntryView];
+    [_messageEntryView release];
+    CKContentEntryView *contentEntryView = [_messageEntryView entryField];
+    [contentEntryView setEntryFieldDelegate:self];
+    [contentEntryView setMessageComposition:[CKMessageComposition newComposition]];
+    [contentEntryView makeActive];
+    
+    //[MSHookIvar<CKTextContentView *>(contentEntryView, "_activeView") setKeyboardAppearance:UIKeyboardAppearanceAlert];
+    
+    //[contentEntryView isFirstResponder];
+    [contentEntryView becomeFirstResponder];
+    //DLogRetain(contentEntryView);    
+    
+    //[[UIKeyboard automaticKeyboard] orderOutWithAnimation:false];
+    _keyWindow = [QRWindow sharedWindow];    
+    _keyWindow.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.0];
+    _keyWindow.userInteractionEnabled = true;
+    _keyWindow.hidden = false;
+    [_keyWindow addSubview:self];
+    [self release];
+    [QRView addAddressInInstances:self.address object:self];
+    if([Instances_ count] == 1) {
+        [[QRWindow sharedWindow] becomeKeyWindowAnimated];
+    } else {
+        [self setAlpha:0];
+        [_keyWindow makeKeyAndVisible];
+        [UIView beginAnimations:nil context:NULL];
+        [UIView setAnimationDuration:0.7];
+        [self setAlpha:1];
+        [UIView commitAnimations];
+    }
+    
+    DLogRetain(_fakeNavBar);
+    DLogRetain(_titleLabel);
+    DLogRetain(_scrollView);
+    DLogRetain(_messageEntryView);
+    //DLogRetain(_keyWindow);
+    DLogRetain(self);
+    
+    //return self;
+}
+<<<<<<< .mine
+
+-(BOOL)checkRegistration {
+    
+=======
+
+#pragma mark MEDIA BUTTON
+- (void)mediaButtonClicked:(id)sender event:(id)event {
+    UIActionSheet *sheet = [[UIActionSheet alloc] initWithTitle:nil 
+                                                       delegate:self 
+                                              cancelButtonTitle:@"Cancel" 
+                                         destructiveButtonTitle:nil 
+                                              otherButtonTitles:@"Take Photo or Video", @"Choose Existing", nil];
+    [sheet showInView:self];
+    [sheet release];
+>>>>>>> .r556
+}
+-(BOOL)checkDeveloper {
+    
+}
+
+<<<<<<< .mine
+- (void)doKeyboard {
+	NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    [[UIKeyboard automaticKeyboard] orderInWithAnimation:true];
+    [pool release];
+}
+=======
+- (void)actionSheet:(UIActionSheet *)actionSheet clickedButtonAtIndex:(NSInteger)buttonIndex {
+    switch (buttonIndex) {
+        case 1:
+            break;
+        case 2:
+            break;
+        default:
+            break;
+    }
+}
+>>>>>>> .r556
+
+<<<<<<< .mine
+=======
+#pragma mark ADD MESSAGE
+>>>>>>> .r556
+- (void)addMessage:(CKMessage *)message animated:(BOOL)animated{
+    //[[UIKeyboard automaticKeyboard] orderInWithAnimation:true];
+    SBSMSManager *manager = [objc_getClass("SBSMSManager") sharedSMSManager];
+    [manager markMessageAsRead:message];
+    [manager updateSMSBadges];
+    NSString *text = [message text];
+    float balloonWidth = [text sizeWithFont:[CKBalloonView defaultFont]].width+34.0;
+    float balloonHeight;
+    if(balloonWidth > 238.0) {
+        balloonHeight = [CKSimpleBalloonView heightForText:text width:238.0 includeBuffers:true];
+        balloonWidth = 238.0;
+    } else
+        balloonHeight = [CKSimpleBalloonView minimumBubbleHeight];
+    CKSimpleBalloonView *balloon = [[CKSimpleBalloonView alloc] initWithFrame:CGRectMake( 0.0, _balloonY+5.0, balloonWidth, balloonHeight) 
+                                                                     delegate:self];
+    [balloon setOrientation:0];
+    [balloon setText:text];
+    [balloon setBackgroundColor:[UIColor clearColor]];
+    
+    _balloonY = _balloonY+balloonHeight+5.0;
+    
+    float scrollHeight = (480.0-_fakeNavBar.frame.size.height-_messageEntryView.frame.size.height-216.0);    
+    [_scrollView addSubview:balloon];
+    DLogRetain(balloon);
+    DLogRetain(_scrollView);
+    [balloon release];
+    
+    if(scrollHeight < _balloonY) {
+        [_scrollView setContentSize:CGSizeMake(320.0, _balloonY)];
+        _fixedScrollView = false;
+        
+        float desiredScrollOffset = _scrollView.contentSize.height-44.0-(180.0-_statusBarHeight);
+        if(_scrollView.contentOffset.y != desiredScrollOffset)
+            [_scrollView setContentOffset:CGPointMake(0.0,desiredScrollOffset) animated:animated];
+    }
+}
+
+- (void)addMessagePart:(CKMessagePart *)part animated:(BOOL)animated {
+    DLogObject(part);
+}
+
+- (BOOL)messageEntryView:(CKMessageEntryView *)messageEntryView contentSizeChanged:(struct CGSize)size animate:(BOOL)animate {
+    UIApplication *app = [UIApplication sharedApplication];
+//    float navBarHeight = 0.0;
+//     if(app.statusBarOrientation == UIInterfaceOrientationPortrait)
+//     navBarHeight = 44.0;
+//     else { /// CODE FOR LANDSCAPE IMPLEMENT!!!
+//     navBarHeight = 44.0;
+//     }
+    //DLogObject(self);
+    float navBarHeight = 44.0;
+    float sysHeight = 480.0;
+    if(messageEntryView.frame.size.height != size.height && (sysHeight-216.0-size.height) >= (app.statusBarFrame.size.height+navBarHeight)) {
+        float diff = size.height - messageEntryView.frame.size.height;
+        DLog(@"diff:%f",diff);
+        [UIView beginAnimations:nil context:NULL];
+        [UIView setAnimationDuration:.1];
+        [messageEntryView setFrame:CGRectMake(messageEntryView.frame.origin.x,
+                                              (sysHeight-216.0-size.height),
+                                              messageEntryView.frame.size.width,
+                                              size.height)];
+        if(!_fixedScrollView) {
+            [_scrollView setFrame:CGRectMake(_scrollView.frame.origin.x, (_scrollView.frame.origin.y-diff), 
+                                             _scrollView.frame.size.width, _scrollView.frame.size.height)];
+        }
+        [UIView commitAnimations];
+        if(!_fixedScrollView) {
+            float desiredEdgeInsetTop = (_scrollView.contentInset.top+diff);
+            if(_scrollView.contentInset.top != desiredEdgeInsetTop)
+                _scrollView.contentInset = _scrollView.scrollIndicatorInsets = UIEdgeInsetsMake(desiredEdgeInsetTop,0.0,0.0,0.0);
+            float desiredScrollOffset = _scrollView.contentSize.height-44.0-(180.0-app.statusBarFrame.size.height);
+            if(_scrollView.contentOffset.y != desiredScrollOffset)
+                [_scrollView setContentOffset:CGPointMake(0.0,desiredScrollOffset) animated:true];
+        }
+    }
+    return true;
+}
+- (void)messageEntryViewSendButtonHit:(CKMessageEntryView *)messageEntryView {
+    DLog(@" sendbuttonHIt");
+    _keyWindow.userInteractionEnabled = false;
+    _messageEntryView.userInteractionEnabled = false;
+    id sendButton = MSHookIvar<id>(_messageEntryView, "_sendButton");
+    [sendButton setEnabled:false];
+    if(messageEntryView != nil) {
+        if([[sendButton title] isEqualToString:@"Send"]){
+            if(_statusBarHeight != 0.0)
+                [_keyWindow startSendingAnimated:true];
+            CKService *service = [CKSMSService sharedSMSService];
+            CKSMSMessage *msg = [service newMessageWithComposition:[[messageEntryView entryField] messageComposition] 
+                                                   forConversation:[[messageEntryView delegate] conversation]];
+            [msg markAsRead];
+            [service sendMessage:msg];
+        }
+    }
+    
+    [self resignAnimated:[NSNumber numberWithBool:true]];
+}
+
+- (void)resignAnimated:(NSNumber *)animated {
+    DLog(@" THIS WORKS ");
+    DLog(@" %i", animated);
+    [QRView removeAddressInInstances:self.address object:self]; //Want it removed if animating out
+    if([animated boolValue]){
+        if([Instances_ count] == 0) {
+            DLog(@" HERE1");
+            [[QRWindow sharedWindow] resignKeyWindowAnimated];
+        }else {
+            DLog(@" HERE!");
+            QRView *temp = [[QRWindow sharedWindow] getFrontMostView];
+            DLogObject(temp);
+            [temp refresh];
+            [UIView beginAnimations:nil context:NULL];
+            [UIView setAnimationDelegate:self];
+            [UIView setAnimationDidStopSelector: @selector(removeFromSuperview)];
+            [UIView setAnimationDuration:0.7];
+            [self setAlpha:0];
+            [UIView commitAnimations];
+        }
+    }else{
+        //NSLog(@" heyyy");
+        DLogRetain(self);
+        DLog(@" THIS IS I TTTT ");
+        [self removeFromSuperview];
+    }
+}
+
+- (CKMessageEntryView *)_messageEntryView {
+    return _messageEntryView;
+}
+
+- (void)refresh {
+    self.window.userInteractionEnabled = true;
+    self.exclusiveTouch = true;
+}
+
+/* ------ OUTSIDE OF INSTANCE ------- */
+
+- (void)entryFieldDidBecomeActive:(CKContentEntryView *)contentEntryView {
+    DLog(@"- (void)entryFieldDidBecomeActive:(CKContentEntryView *)contentEntryView;");
+}
+- (BOOL)entryFieldShouldBecomeActive:(CKContentEntryView *)contentEntryView {
+    DLog(@"- (BOOL)entryFieldShouldBecomeActive:(CKContentEntryView *)contentEntryView;");
+    return true;
+}
+- (void)entryFieldAttachmentsChanged:(CKContentEntryView *)contentEntryView {
+    DLog(@"attach change");
+}
+- (void)entryFieldContentChanged:(CKContentEntryView *)contentEntryView{
+    UIThreePartButton *sendButton = MSHookIvar<UIThreePartButton *>([[contentEntryView entryFieldDelegate] _messageEntryView],"_sendButton");
+    if(![contentEntryView hasContent]) {
+        [sendButton setTitle:@"Done"];
+    } else {
+        if(!([[sendButton title] isEqualToString:@"Send"]))
+            [sendButton setTitle:@"Send"];
+    }
+}
+- (void)entryFieldSubjectChanged:(CKContentEntryView *)contentEntryView {
+    DLog(@"subject change");
+}
+- (BOOL)entryField:(CKContentEntryView *)contentEntryView shouldInsertMediaObject:(id)mediaObject { // ??? whats fp12
+    DLog(@"- (BOOL)entryField:(CKContentEntryView *)contentEntryView shouldInsertMediaObject:(id)mediaObject;");
+    DLogObject(mediaObject);
+    NSDictionary *settings = [NSDictionary dictionaryWithContentsOfFile:@"/var/mobile/Library/Preferences/com.apple.MobileSMS.plist"];
+    if([[settings objectForKey:@"MMSEnabled"] boolValue])
+        return true;
+    else
+        return false;
+}
+
+- (void)clippedTargetRectForBalloon:(id)balloon {
+    //REQUIRED -- allows balloon copy!!
+}
+
+/* ------- END OUTSIDE OF INSTANCE --------- */
+
+- (void)dealloc {
+    //_keyWindow.hidden = true;
+    //_keyWindow.alpha = 1;
+    //   if([[QRView instances] count] == 0 || [[QRWindow sharedWindow] isKeyWindow] == false)
+    //     _keyWindow.hidden = true;
+    DLog(@"dealloc");
+    DLogObject(self);
+    DLogRetain(self);
+    //[self release];
+    //DLogRetain(self);
+    //DLogRetain(_fakeNavBar);
+    //DLogRetain(_titleLabel);
+    //DLogRetain(_scrollView);
+    //DLogRetain(_messageEntryView);
+    [super dealloc];
+    //[_keyWindow resignKeyWindow];
+    //[_keyWindow release];
+}
+
+@end

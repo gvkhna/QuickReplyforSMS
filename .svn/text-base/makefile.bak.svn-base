@@ -1,0 +1,149 @@
+CC=/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin/arm-apple-darwin10-gcc-4.2.1
+SYSROOT=/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS3.0.sdk
+HEADERS=/Users/gauravk92/usr/iPhoneOS3.0.sdk/usr/include
+MSDIR=/Library/MobileSubstrate/DynamicLibraries
+PLDIR=/Library/PreferenceLoader/Preferences
+PREFDIR=/var/mobile/Library/Preferences/
+Target=QuickReply
+IP=root@${IPHONE}
+VERSION=1.5.3
+Targets=( \
+"$(Target)Settings.plist" "$(PLDIR)/$(Target).plist" \
+"*QRSMS.png" "/System/Library/CoreServices/SpringBoard.app/" \
+)
+
+LDFLAGS=		-g0 -O2 -Wall -Werror -lsubstrate -lobjc -dynamiclib -bind_at_load -multiply_defined suppress\
+				-isysroot $(SYSROOT) \
+				-framework Foundation \
+				-framework UIKit \
+				-framework CoreFoundation \
+				-framework CoreGraphics \
+				-framework ChatKit \
+				-framework GraphicsServices \
+				-framework AddressBook \
+				-framework QuartzCore \
+				-framework CoreTelephony \
+				-L$(SYSROOT)/usr/lib \
+				-F$(SYSROOT)/System/Library/Frameworks \
+				-F$(SYSROOT)/System/Library/PrivateFrameworks \
+				-init _$(Target)Init \
+				
+CFLAGS= 		-dynamiclib -multiply_defined suppress \
+				-I$(SYSROOT)/usr/include \
+				-I$(HEADERS) \
+				-I$(SYSROOT)/usr/lib/gcc/arm-apple-darwin9/4.2.1/include/ \
+				-F$(SYSROOT)/System/Library/Frameworks \
+				-F$(SYSROOT)/System/Library/PrivateFrameworks 
+
+LNS=`svnversion . | sed s/.*:// | sed s/M//`
+							
+all: clean $(Target).dylib cleancrap size
+
+$(Target).dylib:	QRLibrary.o
+		$(CC) $(LDFLAGS) -o $@ $^
+		ldid -S $(Target).dylib
+		
+$(Target)Rock.dylib:	QRLibrary.Ro
+	$(CC) $(LDFLAGS) -framework IOKit -lcrypto -lrock -o $@ $^
+	ldid -S $(Target)Rock.dylib
+	
+%.o: %.mm
+		$(CC) -c $(CFLAGS) $< -o $@
+%.Ro: %.mm
+		$(CC) -c -D ROCK $(CFLAGS) $< -o $@
+		
+pp: QRLibrary.mm
+		$(CC) -E QRLibrary.mm $(CFLAGS) -o QRLibraryPP.mm
+		
+pprock: QRLibrary.mm
+		$(CC) -E QRLibrary.mm $(CFLAGS) -DROCK -include Rock/RockLicensing.h -o QRLibraryPPR.mm
+		
+install:
+		scp $(Target).dylib $(IP):/tmp
+		scp $(Target)Settings.plist $(IP):$(PLDIR)/$(Target).plist
+		scp $(Target).plist $(IP):$(MSDIR)/$(Target).plist
+		#scp net.gauravkhanna.$(Target).plist $(IP):/var/mobile/Library/Preferences/net.gauravkhanna.$(Target).plist
+		#scp 'rm -rf /var/mobile/Library/Preferences/net.gauravkhanna.QuickReply.plist'
+		scp ./Resources/*_QRSMS.png $(IP):/System/Library/CoreServices/SpringBoard.app/
+	#ssh $(IP) 'ln -s /Applications/MobileSMS.app/Icon-Small.png /Library/PreferenceLoader/Preferences/QuickReplyIcon.png'
+		ssh $(IP) 'chmod 755 /tmp/$(Target).dylib;rm -rf $(MSDIR)/$(Target).dylib;cp /tmp/$(Target).dylib $(MSDIR)/;restart'
+		
+installrock:
+		scp $(Target)Rock.dylib $(IP):/tmp
+		scp $(Target)Settings.plist $(IP):$(PLDIR)/$(Target).plist
+		scp $(Target).plist $(IP):$(MSDIR)/$(Target).plist
+		#scp net.gauravkhanna.$(Target).plist $(IP):/var/mobile/Library/Preferences/net.gauravkhanna.$(Target).plist
+		#scp 'rm -rf /var/mobile/Library/Preferences/net.gauravkhanna.QuickReply.plist'
+		scp ./Resources/*_QRSMS.png $(IP):/System/Library/CoreServices/SpringBoard.app/
+	#ssh $(IP) 'ln -s /Applications/MobileSMS.app/Icon-Small.png /Library/PreferenceLoader/Preferences/QuickReplyIcon.png'
+		ssh $(IP) 'chmod 755 /tmp/$(Target)Rock.dylib;rm -rf $(MSDIR)/$(Target).dylib;cp /tmp/$(Target)Rock.dylib $(MSDIR)/$(Target).dylib;restart'
+		
+package:
+		make commit
+		mkdir -p $(Target)Dir/DEBIAN
+		sed s/VERSION.LNS/$(VERSION).$(LNS)/ <Resources/control>$(Target)Dir/DEBIAN/control
+		sed s/mobilesubstrate/mobilesubstrate,syslogd/ $(Target)Dir/DEBIAN/control
+		mkdir -p $(Target)Dir$(MSDIR)
+		cp $(Target).dylib $(Target)Dir$(MSDIR)/$(Target).dylib
+		cp $(Target).plist $(Target)Dir$(MSDIR)/$(Target).plist
+		mkdir -p $(Target)Dir/System/Library/CoreServices/SpringBoard.app
+		cp ./Resources/*_QRSMS.png $(Target)Dir/System/Library/CoreServices/SpringBoard.app/
+		mkdir -p $(Target)Dir$(PLDIR)
+		cp $(Target)Settings.plist $(Target)Dir$(PLDIR)/$(Target).plist
+		mkdir -p $(Target)Dir$(PREFDIR)
+		cp net.gauravkhanna.$(Target).plist $(Target)Dir$(PREFDIR)/net.gauravkhanna.$(Target).plist
+		rm -rf $(Target)*.deb
+		dpkg-deb -b $(Target)Dir ./build/$(Target)_$(VERSION).$(shell expr $(shell echo $(LNS))).deb
+		
+rockpackage:
+		make $(Target)Rock.dylib
+		cp -r ./$(Target)Dir ./$(Target)RockDir
+		rm -rf $(Target)RockDir$(MSDIR)/$(Target).dylib
+		rm -rf $(Target)RockDir/DEBIAN/control
+		cp $(Target)Rock.dylib $(Target)RockDir$(MSDIR)/$(Target).dylib
+		sed s/ckquickreply/ckquickreplyrock/ <$(Target)Dir/DEBIAN/control>$(Target)RockDir/DEBIAN/control
+		dpkg-deb -b $(Target)RockDir ./build/$(Target)_$(VERSION).$(shell expr $(shell echo $(LNS)))_Rock.deb
+
+zip:
+		mv ./$(Target)Dir/DEBIAN ./Resources/DEBIAN
+		zip -r ./build/$(Target)_$(VERSION).$(shell expr $(shell echo $(LNS))).zip ./$(Target)Dir
+		mv ./Resources/DEBIAN ./$(Target)Dir/DEBIAN
+		
+distrib:
+		if test ! -f QuickReply.dylib; then make; fi
+		make package
+		make rockpackage
+		make zip
+		
+repo:
+		mkdir -p Repo
+		cp ./Resources/Release ./Repo/Release
+		cp ./$(Target)*.deb ./Repo/
+		dpkg-scanpackages . /dev/null >./Repo/Packages
+		bzip2 ./Repo/Packages
+		
+testpackage:
+		#ssh $(IP) 'rm -rf $(MSDIR)/$(Target).dylib;rm -rf $(PLDIR)/$(Target).plist;rm -rf $(MSDIR)/$(Target).plist;'
+		ssh $(IP) 'rm -rf /tmp/$(Target)*.deb;'
+		scp $(Target)*.deb $(IP):/tmp
+		ssh $(IP) 'chmod 755 /tmp/$(Target)*.deb;dpkg -i /tmp/$(Target)*.deb;restart'
+		
+rpackage:
+		ssh $(IP) 'apt-get -y remove ckquickreply;restart'
+		
+uninstall:
+		ssh $(IP) 'rm -rf $(MSDIR)/$(Target).dylib;rm -rf $(PLDIR)/$(Target).plist;rm -rf $(MSDIR)/$(Target).plist;restart'
+clean:
+		rm -rf *.o *.Ro $(Target).dylib ./Repo ./$(Target)Dir $(Target)Rock.dylib ./$(Target)RockDir QRLibraryPP*.mm
+cleancrap:
+		rm -rf *.o *.Ro
+size:
+		ls -al $(Target).dylib
+commit:
+		svn commit -m "Packaging build $(VERSION).$(shell expr $(shell echo $(LNS)) + 1)"
+			
+testcode:
+		echo "${#Targets[@]}"
+		for (( i = 0 ; i < ${#Targets[$]} ; i++ )) do \
+			echo ${#Targets[$i]}; \
+		done;
